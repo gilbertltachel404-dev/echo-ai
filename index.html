@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Echo AI - Smart Persian Pro</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+        body { background-color: #121212; color: #e0e0e0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        header { background-color: #1e1e1e; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+        .logo { font-size: 1.2rem; font-weight: bold; color: #00e676; }
+        
+        #chat-container { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-bottom: 120px; }
+        
+        .message { max-width: 90%; padding: 14px 16px; border-radius: 12px; line-height: 1.8; font-size: 0.95rem; word-wrap: break-word; }
+        .user { align-self: flex-end; background-color: #00e676; color: #000; border-bottom-left-radius: 2px; }
+        .bot { align-self: flex-start; background-color: #2a2a2a; color: #fff; border-bottom-right-radius: 2px; border: 1px solid #3c3c3c; }
+        .agent-badge { font-size: 0.75rem; color: #00e676; margin-bottom: 8px; font-weight: bold; display: inline-block; background: rgba(0, 230, 118, 0.1); padding: 2px 8px; border-radius: 4px; }
+        
+        .chat-image { max-width: 100%; border-radius: 8px; margin-top: 8px; display: block; border: 1px solid rgba(0,0,0,0.2); }
+
+        #input-container { position: fixed; bottom: 0; left: 0; width: 100%; display: flex; flex-direction: column; background-color: #1e1e1e; border-top: 1px solid #333; }
+        
+        #image-preview-area { display: none; padding: 10px; background: #252525; border-bottom: 1px solid #333; position: relative; }
+        #preview-img { height: 60px; border-radius: 6px; object-fit: cover; }
+        #remove-img-btn { position: absolute; top: 10px; right: 15px; background: #ff5252; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-weight: bold; }
+
+        #input-row { display: flex; align-items: center; padding: 10px; gap: 6px; width: 100%; }
+        input[type="text"] { flex: 1; min-width: 0; padding: 12px; border: none; border-radius: 8px; background-color: #2c2c2c; color: #fff; outline: none; font-size: 1rem; }
+        .action-btn { padding: 12px 14px; border: none; border-radius: 8px; background-color: #2c2c2c; color: #00e676; font-weight: bold; cursor: pointer; font-size: 1.1rem; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+        .send-btn { background-color: #00e676; color: #000; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">Echo ⚡ (Ultra Smart)</div>
+        <div class="header-controls">
+            <div id="voiceToggleBtn" class="toggle-btn active" onclick="toggleVoice()" style="font-size: 0.75rem; background: #00e676; color: #000; padding: 6px 10px; border-radius: 20px; cursor: pointer;">
+                🔊 صدا: <span id="voiceStatusText">روشن</span>
+            </div>
+        </div>
+    </header>
+
+    <div id="chat-container">
+        <div class="message bot">
+            <div class="agent-badge">دستیار هوشمند (Echo Pro)</div>
+            سلام رفیق! مشکل خطای اتصال رفع شد. الان کاملاً آماده‌ام. چطور می‌تونم کمکت کنم؟ 🚀🔥
+        </div>
+    </div>
+
+    <div id="input-container">
+        <div id="image-preview-area">
+            <img id="preview-img" src="" alt="Preview">
+            <button id="remove-img-btn" onclick="clearImage()">×</button>
+        </div>
+        
+        <div id="input-row">
+            <button class="action-btn" onclick="document.getElementById('file-input').click()" title="ارسال عکس">🖼️</button>
+            <input type="file" id="file-input" accept="image/*" style="display: none;" onchange="handleImageSelect(event)">
+            
+            <button class="action-btn" onclick="startListening()" title="حرف زدن">🎤</button>
+            <input type="text" id="user-input" placeholder="پیامت رو بنویس..." onkeypress="handleKeyPress(event)">
+            <button class="action-btn send-btn" onclick="sendMessage()" title="ارسال">🚀</button>
+        </div>
+    </div>
+
+    <script>
+        const OPENROUTER_API_KEY = "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";
+
+        let isVoiceEnabled = true;
+        let currentImageBase64 = null;
+
+        const SYSTEM_PROMPT = "تو یک دستیار هوش مصنوعی بسیار باهوش، متخصص و فارسی‌زبان هستی. پاسخ‌هایت باید دقیق، منطقی، کامل و به زبان فارسی روان و طبیعی باشند.";
+
+        let conversationHistory = [
+            { role: "system", content: SYSTEM_PROMPT }
+        ];
+
+        function toggleVoice() {
+            isVoiceEnabled = !isVoiceEnabled;
+            document.getElementById('voiceStatusText').innerText = isVoiceEnabled ? "روشن" : "خاموش";
+            document.getElementById('voiceToggleBtn').style.background = isVoiceEnabled ? "#00e676" : "#2a2a2a";
+            document.getElementById('voiceToggleBtn').style.color = isVoiceEnabled ? "#000" : "#bbb";
+        }
+
+        function speakText(text) {
+            if (!isVoiceEnabled || !('speechSynthesis' in window)) return;
+            window.speechSynthesis.cancel();
+            const cleanText = text.replace(/[*_#`]/g, '');
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            utterance.lang = 'fa-IR';
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function startListening() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) return alert("مرورگر شما از میکروفن پشتیبانی نمی‌کند.");
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'fa-IR';
+            recognition.onresult = function(event) {
+                document.getElementById('user-input').value = event.results[0][0].transcript;
+                sendMessage();
+            };
+            recognition.start();
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') sendMessage();
+        }
+
+        function handleImageSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 800;
+                    let scale = 1;
+                    if (img.width > MAX_WIDTH) scale = MAX_WIDTH / img.width;
+                    
+                    canvas.width = img.width * scale;
+                    canvas.height = img.height * scale;
+                    
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    currentImageBase64 = canvas.toDataURL('image/jpeg', 0.8);
+                    
+                    document.getElementById('preview-img').src = currentImageBase64;
+                    document.getElementById('image-preview-area').style.display = 'block';
+                }
+                img.src = e.target.result;
+            }
+            reader.readAsDataURL(file);
+            event.target.value = '';
+        }
+
+        function clearImage() {
+            currentImageBase64 = null;
+            document.getElementById('image-preview-area').style.display = 'none';
+            document.getElementById('preview-img').src = '';
+        }
+
+        async function callOpenRouter(promptText) {
+            if (!OPENROUTER_API_KEY) {
+                return "⚠️ خطا: کلید API وارد نشده است.";
+            }
+
+            const url = "https://openrouter.ai/api/v1/chat/completions";
+            
+            // استفاده از روتر عمومی اوپن‌روتر که به صورت خودکار به مدل‌های فعال متصل می‌شود
+            const selectedModel = "openrouter/auto";
+
+            let userContent;
+            if (currentImageBase64) {
+                userContent = [
+                    { type: "text", text: promptText || "این تصویر را تحلیل کن." },
+                    { type: "image_url", image_url: { url: currentImageBase64 } }
+                ];
+            } else {
+                userContent = promptText;
+            }
+
+            conversationHistory.push({ role: "user", content: userContent });
+
+            const data = {
+                model: selectedModel,
+                messages: conversationHistory
+            };
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+                        'HTTP-Referer': window.location.href,
+                        'X-Title': 'Echo AI Pro'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    const errText = await response.text();
+                    return `⚠️ خطای سرور (${response.status}): ${errText.slice(0, 60)}`;
+                }
+
+                const result = await response.json();
+                if (result.choices && result.choices.length > 0 && result.choices[0].message) {
+                    const aiReply = result.choices[0].message.content;
+                    conversationHistory.push({ role: "assistant", content: aiReply });
+                    return aiReply;
+                } else {
+                    return "⚠️ پاسخی از سرور دریافت نشد.";
+                }
+            } catch (error) {
+                return `⚠️ خطای شبکه: ${error.message}`;
+            }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('user-input');
+            const chatContainer = document.getElementById('chat-container');
+            const text = input.value.trim();
+
+            if (text === "" && !currentImageBase64) return;
+
+            const userMsg = document.createElement('div');
+            userMsg.className = 'message user';
+            
+            let userHTML = text ? `<div>${text}</div>` : '';
+            if (currentImageBase64) {
+                userHTML += `<img src="${currentImageBase64}" class="chat-image">`;
+            }
+            userMsg.innerHTML = userHTML;
+            
+            chatContainer.appendChild(userMsg);
+            input.value = "";
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            const botMsg = document.createElement('div');
+            botMsg.className = 'message bot';
+            botMsg.innerHTML = `<div class="agent-badge">دستیار هوشمند (Echo Pro)</div>در حال پردازش... 🧠⚡`;
+            chatContainer.appendChild(botMsg);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            const finalReply = await callOpenRouter(text);
+            
+            botMsg.innerHTML = `<div class="agent-badge">دستیار هوشمند (Echo Pro)</div>${finalReply.replace(/\n/g, '<br>')}`;
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            
+            clearImage();
+            speakText(finalReply);
+        }
+    </script>
+</body>
+</html>
